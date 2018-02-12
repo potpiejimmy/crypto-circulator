@@ -1,0 +1,22 @@
+{
+  "name": "crypto-circulator",
+  "version": "1.0.0",
+  "description": "The ultimate money machine - Part II",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://potpiejimmy@github.com/potpiejimmy/crypto-circulator.git"
+  },
+  "author": "Thorsten Liese",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/potpiejimmy/crypto-circulator/issues"
+  },
+  "homepage": "https://github.com/potpiejimmy/crypto-circulator#readme",
+  "dependencies": {
+    "node-fetch": "^2.0.0"
+  }
+}
