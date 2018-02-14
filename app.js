@@ -1,5 +1,5 @@
-var crypto = require('crypto');
-var fetch = require('node-fetch');
+const crypto = require('crypto');
+const fetch = require('node-fetch');
 
 const REF_ASSET = "ETH";
 
@@ -21,7 +21,6 @@ let commission = 0; // total commission
 
 // read all account assets
 readAssets()
-.then(res => res.json())
 .then(res => {
     coins.push(REF_ASSET); // REF_ASSET first in list
     res.balances.forEach(i => {
@@ -57,8 +56,8 @@ readAssets()
     //}
     circles = circles.sort((a,b) => b.d - a.d);
 
-    console.log("The top five circles are: ");
-    for (let i=0; i<5; i++) {
+    console.log("The top three circles are: ");
+    for (let i=0; i<3; i++) {
         let c = circles[i];
         console.log((i+1)+": "+c.c[0]+"->"+c.c[1]+"->"+c.c[2]+"->"+c.c[0]+" = " + c.p);
     }
@@ -68,9 +67,8 @@ readAssets()
         let swap = circle.c[1];
         circle.c[1] = circle.c[2];
         circle.c[2] = swap;
-        circle.p = 1/circle.p;
     }
-    console.log("Okay, trading circle "+circle.c[0]+"->"+circle.c[1]+"->"+circle.c[2]+"->"+circle.c[0]+" to make "+((circle.p-1)*100).toFixed(2)+"% profit.");
+    console.log("Okay, trading circle "+circle.c[0]+"->"+circle.c[1]+"->"+circle.c[2]+"->"+circle.c[0]+" to make "+circle.d.toFixed(2)+"% profit.");
 
     printCircleValue(circle);
     return trade(circle.c[0],circle.c[1]);
@@ -90,7 +88,6 @@ readAssets()
 //     // now, read all account assets again (after trading)
 //     return readAssets();
 // })
-// .then(res => res.json())
 // .then(res => {
     console.log("Done.");
 })
@@ -124,44 +121,58 @@ function readAssets() {
     let params = "timestamp=" + Date.now();
     url = "https://api.binance.com/api/v3/account?" + params + "&signature=" + sign(params);
     console.log("Reading account assets: GET " + url);
-    return fetch(url, {headers: {"X-MBX-APIKEY": process.env.API_KEY}});
+    return fetch(url, {headers: {"X-MBX-APIKEY": process.env.API_KEY}}).then(res => {
+        if (res.status != 200) throw res.status + " " + res.statusText;
+        return res.json();
+    });
 }
 
 function trade(a,b) {
     let symbol;
     let side;
     let quantity;
+    let avail;
+    let price;
     if  (prices[a+b]) {
         symbol = a+b;
         side = 'SELL';
-        quantity = assets[a];
+        avail = assets[a];
     } else {
         symbol = b+a;
         side = 'BUY';
-        quantity = assets[a] / prices[b+a];
+        avail = assets[a] / prices[b+a];
     }
-    quantity = parseFloat((quantity*0.95).toPrecision(2));
-    process.stdout.write(side + " " + quantity + " " + symbol + "...");
+    quantity = parseFloat((avail*0.95).toPrecision(2));
+    price = prices[symbol];
+    if (side=='BUY') price = parseFloat((price*1.005).toPrecision(4));
+    else price = parseFloat((price*0.995).toPrecision(4));
+    process.stdout.write(side + " " + quantity + " " + symbol + " for " + price + " (market: " + prices[symbol] + ")...");
 
-    let params = "symbol=" + symbol + "&side=" + side + "&type=MARKET&quantity=" + quantity + "&newOrderRespType=FULL&timestamp=" + Date.now();
+    let params = "symbol=" + symbol + "&side=" + side + "&type=LIMIT&quantity=" + quantity + "&newOrderRespType=FULL&price="+price+"&timeInForce=FOK&timestamp=" + Date.now();
     url = "https://api.binance.com/api/v3/order?" + params + "&signature=" + sign(params);
     return fetch(url, {method:'POST', headers: {"X-MBX-APIKEY": process.env.API_KEY}})
            .then(res => res.json())
            .then(res => {
-               if (res.code && res.code!=0) console.log(res.msg);
-               else {
-                   console.log("OK");
-                   if (res.fills) {
+               if (res.code && res.code!=0) {
+                   console.log(res.msg);
+                   throw "Trade failure at " + a;
+               } else {
+                   console.log(res.status);
+                   if (res.fills && res.fills.length) {
                         res.fills.forEach(i => {
+                            let qtyA = parseFloat(i.qty);
+                            let qtyB = qtyA * parseFloat(i.price);
                             if (side == 'SELL') {
-                                assets[a] -= parseFloat(i.qty);
-                                assets[b] += parseFloat(i.qty) * parseFloat(i.price);
+                                assets[a] -= qtyA;
+                                assets[b] += qtyB
                             } else {
-                                assets[a] -= parseFloat(i.qty) * parseFloat(i.price);
-                                assets[b] += parseFloat(i.qty);
+                                assets[a] -= qtyB;
+                                assets[b] += qtyA;
                             }
                             //commission += parseFloat(i.commission);
                         });
+                   } else {
+                       throw "Unsuccessful trade at " + a;
                    }
                }
             });
