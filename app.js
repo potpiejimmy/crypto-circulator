@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const fetch = require('node-fetch');
+const WebSocket = require('ws');
 
 const REF_ASSET = "ETH";
 
@@ -18,6 +19,7 @@ let valBefore = 0; // total REF_CUR value before trading
 let valAfter = 0; // total REF_CUR value after trading
 let tradeVolume = 0; // total theoretical trade volume (sum of all diff absolutes)
 let commission = 0; // total commission
+let listenKey; // web socket listen key
 
 // read all account assets
 readAssets()
@@ -32,7 +34,7 @@ readAssets()
     // get all current prices from the public API
     let url = "https://api.binance.com/api/v1/ticker/allPrices";
     console.log("Reading prices: GET " + url);
-    return fetch(url)
+    return fetch(url);
 })
 .then(res => res.json())
 .then(allPrices => {
@@ -70,20 +72,41 @@ readAssets()
     }
     console.log("Okay, trading circle "+circle.c[0]+"->"+circle.c[1]+"->"+circle.c[2]+"->"+circle.c[0]+" to make "+circle.d.toFixed(2)+"% profit.");
 
+    // register listen key for websocket:
+    return fetch("https://api.binance.com/api/v1/userDataStream", {method: 'POST', headers: {"X-MBX-APIKEY": process.env.API_KEY}});
+})
+.then(res => res.json())
+.then(listenKeyData => {
+
+    listenKey = listenKeyData.listenKey;
+    console.log("WebSocket listen key = "+listenKey);
+
+    const ws = new WebSocket('wss://stream.binance.com:9443//ws/' + listenKey);
+    ws.on('open', function open() {
+        console.log("WebSocket stream opened.");
+    });
+    ws.on('close', function close() {
+        console.log('WebSocket disconnected.');
+    });
+
+    ws.on('message', function incoming(data) {
+        console.log("<<< " + data);
+    });
+
     printCircleValue(circle);
     return trade(circle.c[0],circle.c[1]);
 })
-.then(()=> {
-    printCircleValue(circle);
-    return trade(circle.c[1],circle.c[2]);
-})
-.then(()=> {
-    printCircleValue(circle);
-    return trade(circle.c[2],circle.c[0]);
-})
-.then(()=> {
-    printCircleValue(circle);
-})
+// .then(()=> {
+//     printCircleValue(circle);
+//     return trade(circle.c[1],circle.c[2]);
+// })
+// .then(()=> {
+//     printCircleValue(circle);
+//     return trade(circle.c[2],circle.c[0]);
+// })
+// .then(()=> {
+//     printCircleValue(circle);
+// })
 .then(()=> {
 //     // now, read all account assets again (after trading)
 //     return readAssets();
@@ -93,6 +116,10 @@ readAssets()
 })
 .catch(err => {
     console.log(err);
+})
+.finally(() => {
+    // delete listen key for websocket:
+    fetch("https://api.binance.com/api/v1/userDataStream?listenKey"+listenKey, {method: 'DELETE', headers: {"X-MBX-APIKEY": process.env.API_KEY}});
 });
 
 function printCircleValue(c) {
