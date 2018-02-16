@@ -150,6 +150,10 @@ function tradeNext() {
             fs.writeFileSync("REF_ASSET", lastAsset);
             process.exit(0);
         });
+    })
+    .catch(err => {
+        console.log(err);
+        process.exit(1);        
     });
 }
 
