@@ -24,6 +24,7 @@ let commission = 0; // total commission
 let listenKey; // web socket listen key
 let lastOrderResult;
 let tradeCount = 0;
+let lastTimeout;
 
 // read all account assets
 readAssets()
@@ -68,6 +69,7 @@ readAssets()
             }
             if (e.X == 'FILLED') {
                 // order fulfilled completely, trade next
+                clearTimeout(lastTimeout);
                 tradeCount++;
                 if (tradeCount == 3) {
                     printCircleValue();
@@ -132,7 +134,7 @@ function startTrading() {
 function tradeNext() {
     printCircleValue(circle);
     trade(circle.c[tradeCount],circle.c[(tradeCount+1)%3])
-    .then(() => new Promise(resolve => setTimeout(resolve, 60000)))
+    .then(() => new Promise(resolve => lastTimeout = setTimeout(resolve, 60000)))
     .then(() => {
         console.log("Cancelling last orderId="+lastOrderResult.orderId);
     
@@ -146,7 +148,7 @@ function tradeNext() {
         let response = Promise.resolve();
         if (listenKey) response = response.then(()=>closeWebSocket());
         response.then(() => {
-            console.log("Done. New REF_ASSET = " + lastAsset);
+            console.log("Done. New REF_ASSET = " + lastAsset + ".\n");
             fs.writeFileSync("REF_ASSET", lastAsset);
             process.exit(0);
         });
