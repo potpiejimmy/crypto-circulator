@@ -17,7 +17,8 @@ let bids = {}; // maps trade symbols to current bids prices (highest bid for sel
 let assets = {};  // current assets
 let coins = [];   // known coins
 let circles = [];  // all circles, ordered by profitability
-let circleNo = 0;  // current trading circle no
+let circleNo = 0;  // current trading circle index no
+let circle;  // current trading circle in trading order
 let valBefore = 0; // total REF_CUR value before trading
 let valAfter = 0; // total REF_CUR value after trading
 let tradeVolume = 0; // total theoretical trade volume (sum of all diff absolutes)
@@ -121,37 +122,24 @@ function calculateTrades() {
         //}
         circles = circles.sort((a,b) => b.d - a.d);
 
-        console.log("The top three circles are: ");
-        for (let i=0; i<3; i++) {
-            let c = circles[i];
-            console.log((i+1)+": "+c.c[0]+"->"+c.c[1]+"->"+c.c[2]+"->"+c.c[0]+" = " + c.p);
-        }
-
         circleNo = 0;
         fetchBids();
-
-        // let circle = circles[circleNo];
-        // if (circle.p < 1) {
-        //     let swap = circle.c[1];
-        //     circle.c[1] = circle.c[2];
-        //     circle.c[2] = swap;
-        // }
-        // console.log("Okay, trading circle "+circle.c[0]+"->"+circle.c[1]+"->"+circle.c[2]+"->"+circle.c[0]+" to make "+circle.d.toFixed(2)+"% profit.");
-
-        // return tradeNext();
     });
 }
 
 function fetchBids() {
-    // fetch all bids and asks at once (open three requests if necessary)
-    if (!bids[circles[circleNo].c[0]+circles[circleNo].c[1]])
-        fetchBidsSingle(circles[circleNo].c[0], circles[circleNo].c[1]);
+    circle = circles[circleNo];
+    console.log("\nCircle #"+(circleNo+1)+": "+circle.c[0]+"->"+circle.c[1]+"->"+circle.c[2]+"->"+circle.c[0]+" = " + circle.p + " (" + circle.d.toFixed(2)+"%)");
 
-    if (!bids[circles[circleNo].c[1]+circles[circleNo].c[2]])
-        fetchBidsSingle(circles[circleNo].c[1], circles[circleNo].c[2]);
+    // fetch all bids and asks at once (open three requests simultaneously if necessary)
+    if (!bids[circle.c[0]+circle.c[1]])
+        fetchBidsSingle(circle.c[0], circle.c[1]);
 
-    if (!bids[circles[circleNo].c[2]+circles[circleNo].c[0]])
-        fetchBidsSingle(circles[circleNo].c[2], circles[circleNo].c[0]);
+    if (!bids[circle.c[1]+circle.c[2]])
+        fetchBidsSingle(circle.c[1], circle.c[2]);
+
+    if (!bids[circle.c[2]+circle.c[0]])
+        fetchBidsSingle(circle.c[2], circle.c[0]);
 }
 
 function fetchBidsSingle(a,b) {
@@ -166,11 +154,14 @@ function fetchBidsSingle(a,b) {
     return fetch(url).then(res => res.json()).then(depth => {
         let bestBid = parseFloat(depth.bids[0][0]);
         let bestAsk = parseFloat(depth.asks[0][0]);
-        bids[symbol] = (bestBid + bestAsk * 5) / 6;
+        console.log("MARKET GAP " + symbol + " [" + bestBid + " - " + bestAsk + "]");
+        let myBid = (bestBid + bestAsk) / 2; //(bestAsk + bestBid * 5) / 6;
+        let myAsk = (bestBid + bestAsk) / 2; //(bestBid + bestAsk * 5) / 6;
+        bids[symbol] = myAsk;
         if (symbol == a+b) {
-            bids[b+a] = 1/((bestAsk + bestBid * 5) / 6);
+            bids[b+a] = 1/myBid
         } else {
-            bids[a+b] = 1/((bestAsk + bestBid * 5) / 6);
+            bids[a+b] = 1/myBid;
         }
         if (isFetchBidsComplete()) evaluateCircle();
     })
@@ -181,20 +172,31 @@ function fetchBidsSingle(a,b) {
 }
 
 function isFetchBidsComplete() {
-    return bids[circles[circleNo].c[0]+circles[circleNo].c[1]] &&
-           bids[circles[circleNo].c[1]+circles[circleNo].c[2]] &&
-           bids[circles[circleNo].c[2]+circles[circleNo].c[0]];
+    return bids[circle.c[0]+circle.c[1]] &&
+           bids[circle.c[1]+circle.c[2]] &&
+           bids[circle.c[2]+circle.c[0]];
 }
 
 function evaluateCircle() {
-    let c = circles[circleNo];
-    let circleP = bids[c.c[0]+c.c[1]] * bids[c.c[1]+c.c[2]] * bids[c.c[2]+c.c[0]];
-    console.log("Evaluate Forwards:  "+c.c[0]+"->"+c.c[1]+"->"+c.c[2]+"->"+c.c[0]+" = " + circleP);
-    circleP = bids[c.c[0]+c.c[2]] * bids[c.c[2]+c.c[1]] * bids[c.c[1]+c.c[0]];
-    console.log("Evaluate Backwards: "+c.c[0]+"->"+c.c[2]+"->"+c.c[1]+"->"+c.c[0]+" = " + circleP);
+    let c = circle;
+    c.rp = bids[c.c[0]+c.c[1]] * bids[c.c[1]+c.c[2]] * bids[c.c[2]+c.c[0]];
+    console.log("Evaluate Forwards:  "+c.c[0]+"->"+c.c[1]+"->"+c.c[2]+"->"+c.c[0]+" = " + c.rp);
 
+    if (c.rp > 1.01) return startTrading();
+
+    // try other way around
+    let swap = c.c[1];
+    c.c[1] = c.c[2];
+    c.c[2] = swap;
+
+    c.rp = bids[c.c[0]+c.c[1]] * bids[c.c[1]+c.c[2]] * bids[c.c[2]+c.c[0]];
+    console.log("Evaluate Backwards: "+c.c[0]+"->"+c.c[1]+"->"+c.c[2]+"->"+c.c[0]+" = " + c.rp);
+
+    if (c.rp > 1.01) return startTrading();
+
+    // move on to next circle
     circleNo++;
-    if (circleNo == circles.length) {
+    if (circleNo == circles.length || circleNo == 10) {
         closeWebSocket().then(()=>{
             process.exit(0);
         });
@@ -203,10 +205,15 @@ function evaluateCircle() {
     }
 }
 
+function startTrading() {
+    console.log("Okay, trading circle "+circle.c[0]+"->"+circle.c[1]+"->"+circle.c[2]+"->"+circle.c[0]+" to make "+((circle.rp-1)*100).toFixed(2)+"% profit.");
+    return tradeNext();
+}
+
 function tradeNext() {
-    printCircleValue(circles[circleNo]);
+    printCircleValue(circle);
     cancellingTrade = false; // opening a new trade
-    trade(circles[circleNo].c[tradeCount],circles[circleNo].c[(tradeCount+1)%3])
+    trade(circle.c[tradeCount],circle.c[(tradeCount+1)%3])
     .then(() => new Promise(resolve => lastTimeout = setTimeout(resolve, 60000)))
     .then(() => {
         console.log("Cancelling last orderId="+lastOrderResult.orderId);
@@ -237,18 +244,18 @@ function handleExecutionReport(e) {
     let qtyA = parseFloat(e.l);
     let qtyB = qtyA * parseFloat(e.L);
     if (e.S == 'SELL') {
-        assets[circles[circleNo].c[tradeCount]] -= qtyA;
-        assets[circles[circleNo].c[(tradeCount+1)%3]] += qtyB
+        assets[circle.c[tradeCount]] -= qtyA;
+        assets[circle.c[(tradeCount+1)%3]] += qtyB
     } else {
-        assets[circles[circleNo].c[tradeCount]] -= qtyB;
-        assets[circles[circleNo].c[(tradeCount+1)%3]] += qtyA;
+        assets[circle.c[tradeCount]] -= qtyB;
+        assets[circle.c[(tradeCount+1)%3]] += qtyA;
     }
     if (e.X == 'FILLED') {
         // order fulfilled completely, trade next
         clearTimeout(lastTimeout);
         tradeCount++;
         if (tradeCount == 3) {
-            printCircleValue(circles[circleNo]);
+            printCircleValue(circle);
             console.log("SUCCESS.");
         } else {
             tradeNext();
@@ -305,20 +312,20 @@ function trade(a,b) {
         symbol = a+b;
         side = 'SELL';
         avail = assets[a];
+        price = bids[a+b];
     } else {
         symbol = b+a;
         side = 'BUY';
-        avail = assets[a] / prices[b+a];
+        avail = assets[a] / bids[b+a];
+        price = 1/bids[a+b];
     }
     quantity = parseFloat((avail*0.95).toPrecision(2));
-    price = prices[symbol];
-//   if (side=='BUY') price = parseFloat((price*1.01).toPrecision(4));
-//    else price = parseFloat((price*0.995).toPrecision(4));
+    price = parseFloat(price.toPrecision(4));
     console.log();
     console.log(side + " " + quantity + " " + symbol + " for " + price + " (market: " + prices[symbol] + ")...");
 
     let params = "symbol=" + symbol + "&side=" + side + "&type=LIMIT&quantity=" + quantity + "&newOrderRespType=FULL&price="+price+"&timeInForce=GTC&timestamp=" + Date.now();
-    let url = "https://api.binance.com/api/v3/order/test?" + params + "&signature=" + sign(params);
+    let url = "https://api.binance.com/api/v3/order?" + params + "&signature=" + sign(params);
     return fetch(url, {method:'POST', headers: {"X-MBX-APIKEY": process.env.API_KEY}})
            .then(res => res.json())
            .then(res => {
