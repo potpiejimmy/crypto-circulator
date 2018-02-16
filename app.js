@@ -25,6 +25,7 @@ let listenKey; // web socket listen key
 let lastOrderResult;
 let tradeCount = 0;
 let lastTimeout;
+let cancellingTrade;
 
 // read all account assets
 readAssets()
@@ -133,10 +134,12 @@ function startTrading() {
 
 function tradeNext() {
     printCircleValue(circle);
+    cancellingTrade = false; // opening a new trade
     trade(circle.c[tradeCount],circle.c[(tradeCount+1)%3])
     .then(() => new Promise(resolve => lastTimeout = setTimeout(resolve, 60000)))
     .then(() => {
         console.log("Cancelling last orderId="+lastOrderResult.orderId);
+        cancellingTrade = true; // cancelling
     
         let params = "symbol="+lastOrderResult.symbol+"&orderId="+lastOrderResult.orderId+"&timestamp="+Date.now();
         let url = "https://api.binance.com/api/v3/order?" + params + "&signature=" + sign(params);
@@ -146,6 +149,7 @@ function tradeNext() {
     .then(res => {
         console.log("Cancel result: " + JSON.stringify(res));
         let response = Promise.resolve();
+        if (!cancellingTrade) return response; // new trade opened, do nothing
         if (listenKey) response = response.then(()=>closeWebSocket());
         response.then(() => {
             console.log("Done. New REF_ASSET = " + lastAsset + ".\n");
