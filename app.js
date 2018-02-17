@@ -1,7 +1,6 @@
 const crypto = require('crypto');
 const fetch = require('node-fetch');
 const WebSocket = require('ws');
-var fs = require("fs");
 
 let refAsset;  // reference asset to start trading with
 
